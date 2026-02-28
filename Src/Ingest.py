@@ -1,96 +1,72 @@
-# src/features.py
+# src/ingest.py
 
 import pandas as pd
-import numpy as np
-import joblib
-
-from sklearn.pipeline import Pipeline
-from sklearn.compose import ColumnTransformer
-from sklearn.preprocessing import (
-    StandardScaler,
-    OneHotEncoder,
-    FunctionTransformer
-)
-
-# ==============================
-# DEFINICIÓN DE COLUMNAS
-# ==============================
-
-NUM_COLS = [
-    "age",
-    "hours-per-week"
-]
-
-LOG_COLS = [
-    "capital-gain",
-    "capital-loss"
-]
-
-CAT_COLS = [
-    "workclass",
-    "occupation",
-    "education",
-    "marital-status",
-    "relationship",
-    "race",
-    "sex",
-    "native-country"
-]
-
-# ==============================
-# TRANSFORMACIONES
-# ==============================
-
-def log_transform(x):
-    return np.log1p(x)
+from pathlib import Path
+import json
 
 
-def build_preprocessor():
+RAW_PATH = Path("data/raw")
+OUTPUT_PATH = Path("data/raw")  # seguimos guardando en raw, solo cambiamos formato
+ARTIFACTS_PATH = Path("artifacts")
 
-    numeric_pipeline = Pipeline([
-        ("scaler", StandardScaler())
-    ])
-
-    log_pipeline = Pipeline([
-        ("log", FunctionTransformer(log_transform)),
-        ("scaler", StandardScaler())
-    ])
-
-    categorical_pipeline = Pipeline([
-        ("onehot", OneHotEncoder(
-            handle_unknown="ignore",
-            sparse_output=False
-        ))
-    ])
-
-    preprocessor = ColumnTransformer([
-        ("num", numeric_pipeline, NUM_COLS),
-        ("log", log_pipeline, LOG_COLS),
-        ("cat", categorical_pipeline, CAT_COLS)
-    ])
-
-    return preprocessor
+ARTIFACTS_PATH.mkdir(exist_ok=True, parents=True)
 
 
-# ==============================
-# EJECUCIÓN
-# ==============================
+def ingest():
+    print("Iniciando ingesta de datos...")
+
+    features_file = RAW_PATH / "features.csv"
+    targets_file = RAW_PATH / "targets.csv"
+
+    if not features_file.exists() or not targets_file.exists():
+        raise FileNotFoundError("No se encontraron los CSV en data/raw/")
+
+    # -------------------------
+    # Leer datos
+    # -------------------------
+    X = pd.read_csv(features_file)
+    y = pd.read_csv(targets_file)
+
+    print(f"Features shape: {X.shape}")
+    print(f"Targets shape: {y.shape}")
+
+    # -------------------------
+    # Validación mínima estructural
+    # -------------------------
+    if len(X) != len(y):
+        raise ValueError("Features y Targets tienen diferente número de filas")
+
+    if X.empty:
+        raise ValueError("Features está vacío")
+
+    if y.empty:
+        raise ValueError("Targets está vacío")
+
+    # -------------------------
+    # Guardar en formato PARQUET (artefacto versionable)
+    # -------------------------
+    X.to_parquet(OUTPUT_PATH / "features.parquet", index=False)
+    y.to_parquet(OUTPUT_PATH / "targets.parquet", index=False)
+
+    print("Archivos convertidos a Parquet.")
+
+    # -------------------------
+    # Metadata (esto es clave en MLOps)
+    # -------------------------
+    report = {
+        "n_rows": len(X),
+        "n_features": X.shape[1],
+        "columns": list(X.columns),
+        "target_name": list(y.columns),
+        "missing_values_features": X.isnull().sum().to_dict(),
+        "missing_values_target": y.isnull().sum().to_dict()
+    }
+
+    with open(ARTIFACTS_PATH / "ingest_report.json", "w") as f:
+        json.dump(report, f, indent=4)
+
+    print("Reporte de ingesta generado.")
+
 
 if __name__ == "__main__":
-
-    df = pd.read_csv("data/raw/features.csv")
-
-    # Eliminar columna irrelevante
-    if "fnlwgt" in df.columns:
-        df = df.drop(columns=["fnlwgt"])
-
-    preprocessor = build_preprocessor()
-
-    X_processed = preprocessor.fit_transform(df)
-
-    # Guardar artefacto
-    joblib.dump(preprocessor, "artifacts/preprocessor.joblib")
-
-    print("✔ Preprocesador entrenado y guardado en artifacts/preprocessor.joblib")
-    print(f"Shape después de OneHotEncoding: {X_processed.shape}")
-    
+    ingest()
