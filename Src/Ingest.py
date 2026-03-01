@@ -1,34 +1,31 @@
 # src/ingest.py
 
 import pandas as pd
-from pathlib import Path
 import json
 import os
 !pip install ucimlrepo
 
-from ucimlrepo import fetch_ucirepo
+from pathlib import Path
 
-def run_ingestion():
-    # 1. Obtener el dataset Adult (ID=2) según tu diapositiva
-    print("Descargando dataset desde UCI ML Repository...")
+def ingest_adult(output_dir: str = 'data/raw') -> dict:
+    # 1. Fetch (Descarga)
     adult = fetch_ucirepo(id=2)
     
-    # 2. Extraer características y objetivos
-    X = adult.data.features
-    y = adult.data.targets
+    # 2. Preparar ruta de almacenamiento
+    path = Path(output_dir)
+    path.mkdir(parents=True, exist_ok=True)
     
-    # 3. Unir en un solo DataFrame para guardarlo
-    df_full = pd.concat([X, y], axis=1)
+    # 3. Almacenar (Formato Parquet para eficiencia)
+    adult.data.features.to_parquet(path / 'features.parquet')
+    adult.data.targets.to_parquet(path / 'targets.parquet')
     
-    # 4. Crear la ruta de destino (siguiendo tu estructura de proyecto)
-    output_path = "data/raw/adult_raw.csv"
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    
-    # 5. Guardar los datos crudos
-    df_full.to_csv(output_path, index=False)
-    print(f"¡Éxito! Datos guardados en: {output_path}")
+    # 4. Retornar metadatos para validación
+    return {
+        'n_rows': len(adult.data.features),
+        'n_features': adult.data.features.shape[1],
+        'target_dist': adult.data.targets.value_counts().to_dict()
+    }
 
 if __name__ == "__main__":
-    run_ingestion()
-
-
+    stats = ingest_adult()
+    print(f"Ingesta completada: {stats}")
